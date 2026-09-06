@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>3D Product Configurator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #1b1d23;
+    color: #eee;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #viewer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+  }
+  #panel {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: rgba(20, 21, 26, 0.85);
+    backdrop-filter: blur(6px);
+    padding: 20px 22px;
+    border-radius: 12px;
+    width: 260px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  #panel h1 {
+    font-size: 18px;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+  }
+  #panel p.sub {
+    font-size: 12px;
+    color: #9a9ea8;
+    margin-bottom: 16px;
+  }
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #7d818c;
+    margin: 14px 0 8px;
+  }
+  #fileInput {
+    display: block;
+    width: 100%;
+    font-size: 12px;
+    color: #ccc;
+    margin-bottom: 6px;
+  }
+  #status {
+    font-size: 12px;
+    color: #6fcf97;
+    min-height: 16px;
+  }
+  .color-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .color-swatch {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.25);
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .color-swatch:hover {
+    transform: scale(1.12);
+  }
+  .color-swatch.active {
+    border-color: #fff;
+  }
+  #materialToggle {
+    margin-top: 14px;
+    width: 100%;
+    padding: 9px;
+    background: #2c2f38;
+    color: #eee;
+    border: 1px solid #3d4150;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  #materialToggle:hover {
+    background: #383c48;
+  }
+  #resetColors {
+    margin-top: 8px;
+    width: 100%;
+    padding: 9px;
+    background: transparent;
+    color: #9a9ea8;
+    border: 1px solid #3d4150;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  #resetColors:hover {
+    color: #eee;
+    border-color: #565b6a;
+  }
+  .part-group {
+    margin-bottom: 12px;
+  }
+  .part-name {
+    font-size: 12px;
+    color: #c7cad2;
+    margin-bottom: 6px;
+  }
+  #hint {
+    position: absolute;
+    bottom: 18px;
+    left: 20px;
+    font-size: 12px;
+    color: #7d818c;
+  }
+</style>
+</head>
+<body>
+
+<div id="viewer"></div>
+
+<div id="panel">
+  <h1>Product Configurator</h1>
+  <p class="sub">Rotate: drag &nbsp;|&nbsp; Zoom: scroll</p>
+
+  <div class="section-label">Load your model</div>
+  <input type="file" id="fileInput" accept=".glb,.gltf" />
+  <div id="status">Waiting for a .glb file...</div>
+
+  <div id="materialPanel"></div>
+
+  <button id="materialToggle">Toggle Glossy / Matte</button>
+  <button id="resetColors">Reset to Original Colors</button>
+</div>
+
+<div id="hint">Tip: place chair.glb anywhere on your PC and select it above.</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const viewerEl = document.getElementById('viewer');
+const statusEl = document.getElementById('status');
+
+// Scene setup
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1b1d23);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(2.2, 1.6, 2.8);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+viewerEl.appendChild(renderer.domElement);
+
+// Controls (rotate + zoom)
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 1;
+controls.maxDistance = 10;
+controls.target.set(0, 0.8, 0);
+
+// Lighting
+const hemi = new THREE.HemisphereLight(0xffffff, 0x222222, 1.1);
+scene.add(hemi);
+
+const key = new THREE.DirectionalLight(0xffffff, 2.2);
+key.position.set(3, 5, 2);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+scene.add(key);
+
+const fill = new THREE.DirectionalLight(0xffffff, 0.6);
+fill.position.set(-3, 2, -2);
+scene.add(fill);
+
+// Ground
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(6, 64),
+  new THREE.MeshStandardMaterial({ color: 0x24262e, roughness: 1 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Model handling
+let currentModel = null;
+let modelMaterials = [];
+const loader = new GLTFLoader();
+
+const swatchPalette = [
+  { hex: '#c0392b', title: 'Red' },
+  { hex: '#2e6f9e', title: 'Blue' },
+  { hex: '#3a7d44', title: 'Green' },
+  { hex: '#1c1c1c', title: 'Black' },
+  { hex: '#e8e2d0', title: 'White' },
+  { hex: '#7a4a2b', title: 'Wood' },
+];
+
+function buildMaterialPanel() {
+  const panel = document.getElementById('materialPanel');
+  panel.innerHTML = '';
+  if (modelMaterials.length === 0) return;
+
+  const label = document.createElement('div');
+  label.className = 'section-label';
+  label.textContent = 'Colors (per part)';
+  panel.appendChild(label);
+
+  modelMaterials.forEach((mat, idx) => {
+    const group = document.createElement('div');
+    group.className = 'part-group';
+
+    const name = document.createElement('div');
+    name.className = 'part-name';
+    name.textContent = mat.name ? mat.name : 'Part ' + (idx + 1);
+    group.appendChild(name);
+
+    const row = document.createElement('div');
+    row.className = 'color-row';
+
+    swatchPalette.forEach((c) => {
+      const sw = document.createElement('div');
+      sw.className = 'color-swatch';
+      sw.style.background = c.hex;
+      sw.title = c.title;
+      sw.addEventListener('click', () => {
+        mat.color.set(c.hex);
+        row.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+        sw.classList.add('active');
+      });
+      row.appendChild(sw);
+    });
+
+    group.appendChild(row);
+    panel.appendChild(group);
+  });
+}
+
+function loadModel(url, name) {
+  statusEl.textContent = 'Loading ' + name + '...';
+  loader.load(
+    url,
+    (gltf) => {
+      if (currentModel) scene.remove(currentModel);
+      currentModel = gltf.scene;
+
+      modelMaterials = [];
+      const seenMaterials = new Set();
+      currentModel.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+          if (child.material && !seenMaterials.has(child.material)) {
+            seenMaterials.add(child.material);
+            // remember the original color so we can reset later
+            if (child.material.color) {
+              child.material.userData.originalColor = child.material.color.getHex();
+            }
+            modelMaterials.push(child.material);
+          }
+        }
+      });
+      buildMaterialPanel();
+
+      // Center and scale the model to a consistent size
+      const box = new THREE.Box3().setFromObject(currentModel);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = 1.6 / maxDim;
+      currentModel.scale.setScalar(scale);
+
+      currentModel.position.x -= center.x * scale;
+      currentModel.position.y -= box.min.y * scale;
+      currentModel.position.z -= center.z * scale;
+
+      scene.add(currentModel);
+      statusEl.textContent = name + ' loaded successfully.';
+    },
+    undefined,
+    (err) => {
+      console.error(err);
+      statusEl.textContent = 'Could not load that file. Try another .glb export.';
+    }
+  );
+}
+
+// File picker
+document.getElementById('fileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  loadModel(url, file.name);
+});
+
+// Reset to original colors
+document.getElementById('resetColors').addEventListener('click', () => {
+  modelMaterials.forEach((mat) => {
+    if (mat.color && mat.userData.originalColor !== undefined) {
+      mat.color.setHex(mat.userData.originalColor);
+    }
+  });
+  document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+});
+
+// Glossy / matte toggle
+let glossy = false;
+document.getElementById('materialToggle').addEventListener('click', () => {
+  glossy = !glossy;
+  modelMaterials.forEach((mat) => {
+    if ('roughness' in mat) mat.roughness = glossy ? 0.15 : 0.85;
+    if ('metalness' in mat) mat.metalness = glossy ? 0.4 : 0.05;
+  });
+});
+
+// Resize handling
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Render loop
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+
+</body>
+</html>
